@@ -28,6 +28,7 @@ pub struct DOBDecoder {
 }
 
 impl DOBDecoder {
+    #[allow(dead_code)]
     #[cfg(not(feature = "shuttle"))]
     pub fn new(settings: Settings) -> Self {
         // skip do this when shuttle feature enabled
@@ -46,10 +47,31 @@ impl DOBDecoder {
         }
     }
 
+    #[allow(dead_code)]
     #[cfg(feature = "shuttle")]
     pub fn new(settings: Settings, persist: PersistInstance) -> Self {
         Self {
             rpc: RpcClient::new(&settings.ckb_rpc),
+            settings,
+            persist,
+        }
+    }
+
+
+    #[allow(dead_code)]
+    #[cfg(not(feature = "shuttle"))]
+    pub fn new_with_rpc(settings: Settings, rpc: RpcClient) -> Self {
+        Self {
+            rpc,
+            settings,
+        }
+    }
+
+    #[allow(dead_code)]
+    #[cfg(feature = "shuttle")]
+    pub fn new_with_rpc(settings: Settings, rpc: RpcClient, persist: PersistInstance) -> Self {
+        Self {
+            rpc,
             settings,
             persist,
         }
