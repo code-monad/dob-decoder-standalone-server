@@ -1,4 +1,4 @@
-use ckb_sdk::{constants::TYPE_ID_CODE_HASH, traits::CellQueryOptions};
+use ckb_client::{constant::TYPE_ID_CODE_HASH, types::{IndexerScriptSearchMode, Order, SearchKey}};
 use ckb_types::{
     core::ScriptHashType,
     packed::{OutPoint, Script},
@@ -7,11 +7,8 @@ use ckb_types::{
 };
 use serde_json::Value;
 use spore_types::generated::spore::{ClusterData, SporeData};
-
-use crate::{
-    client::RpcClient,
-    types::{ClusterDescriptionField, DecoderLocationType, Error, ScriptId, Settings},
-};
+use ckb_client::rpc_client::RpcClient;
+use crate::types::{ClusterDescriptionField, DecoderLocationType, Error, ScriptId, Settings};
 
 type DecodeResult<T> = Result<T, Error>;
 
@@ -22,8 +19,12 @@ pub struct DOBDecoder {
 
 impl DOBDecoder {
     pub fn new(settings: Settings) -> Self {
+        // ensure dir creation, don't want to deal with it
+        let _ = std::fs::create_dir_all(&settings.decoders_cache_directory);
+        let _ = std::fs::create_dir_all(&settings.dobs_cache_directory);
+
         Self {
-            rpc: RpcClient::new(&settings.ckb_rpc, &settings.ckb_rpc),
+            rpc: RpcClient::new(&settings.ckb_rpc),
             settings,
         }
     }
@@ -82,6 +83,7 @@ impl DOBDecoder {
                     {
                         return Err(Error::DecoderBinaryHashInvalid);
                     }
+                    println!("write decoder binary to {:?}", decoder_path);
                     std::fs::write(decoder_path.clone(), decoder_file_content)
                         .map_err(|_| Error::DecoderBinaryPathInvalid)?;
                 }
@@ -174,7 +176,7 @@ impl DOBDecoder {
         {
             spore_cell = self
                 .rpc
-                .get_cells(spore_search_option.into(), 1, None)
+                .get_cells(spore_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
                 .await
                 .map_err(|_| Error::FetchLiveCellsError)?
                 .objects
@@ -221,7 +223,7 @@ impl DOBDecoder {
         {
             cluster_cell = self
                 .rpc
-                .get_cells(cluster_search_option.into(), 1, None)
+                .get_cells(cluster_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
                 .await
                 .map_err(|_| Error::FetchLiveCellsError)?
                 .objects
@@ -248,7 +250,7 @@ impl DOBDecoder {
         let decoder_search_option = build_type_id_search_option(decoder_id);
         let decoder_cell = self
             .rpc
-            .get_cells(decoder_search_option.into(), 1, None)
+            .get_cells(decoder_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
             .await
             .map_err(|_| Error::FetchLiveCellsError)?
             .objects
@@ -270,7 +272,7 @@ impl DOBDecoder {
     ) -> DecodeResult<Vec<u8>> {
         let decoder_cell = self
             .rpc
-            .get_live_cell(&OutPoint::new(tx_hash.pack(), out_index).into(), true)
+            .get_live_cell(OutPoint::new(tx_hash.pack(), out_index).into(), true)
             .await
             .map_err(|_| Error::FetchTransactionError)?;
         let decoder_binary = decoder_cell
@@ -283,19 +285,27 @@ impl DOBDecoder {
     }
 }
 
-fn build_type_id_search_option(type_id_args: [u8; 32]) -> CellQueryOptions {
+fn build_type_id_search_option(type_id_args: [u8; 32]) -> SearchKey {
     let type_script = Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.0.pack())
         .hash_type(ScriptHashType::Type.into())
         .args(type_id_args.to_vec().pack())
         .build();
-    CellQueryOptions::new_type(type_script)
+    SearchKey {
+        script: type_script.into(),
+        script_type: ckb_client::types::ScriptType::Type,
+        script_search_mode: Some(IndexerScriptSearchMode::Exact),
+        filter: None,
+        with_data: None,
+        group_by_transaction: None,
+        
+    }
 }
 
 fn build_batch_search_options(
     type_args: [u8; 32],
     available_script_ids: &[ScriptId],
-) -> Vec<CellQueryOptions> {
+) -> Vec<SearchKey> {
     available_script_ids
         .iter()
         .map(
@@ -309,7 +319,15 @@ fn build_batch_search_options(
                     .hash_type(hash_type.into())
                     .args(type_args.to_vec().pack())
                     .build();
-                CellQueryOptions::new_type(type_script)
+                SearchKey {
+                    script: type_script.into(),
+                    script_type: ckb_client::types::ScriptType::Type,
+                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    filter: None,
+                    with_data: None,
+                    group_by_transaction: None,
+                    
+                }
             },
         )
         .collect()

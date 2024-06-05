@@ -4,7 +4,6 @@ use jsonrpsee::{server::ServerBuilder, tracing};
 use server::DecoderRpcServer;
 use tracing_subscriber::EnvFilter;
 
-mod client;
 mod decoder;
 mod server;
 mod types;
