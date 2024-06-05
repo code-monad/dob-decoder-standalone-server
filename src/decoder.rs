@@ -57,14 +57,10 @@ impl DOBDecoder {
         }
     }
 
-
     #[allow(dead_code)]
     #[cfg(not(feature = "shuttle"))]
     pub fn new_with_rpc(settings: Settings, rpc: RpcClient) -> Self {
-        Self {
-            rpc,
-            settings,
-        }
+        Self { rpc, settings }
     }
 
     #[allow(dead_code)]
@@ -102,76 +98,114 @@ impl DOBDecoder {
     ) -> DecodeResult<String> {
         let decoder_path = match dob_metadata.dob.decoder.location {
             DecoderLocationType::CodeHash => {
-                let mut decoder_path = self.settings.decoders_cache_directory.clone();
-                decoder_path.push(format!(
-                    "code_hash_{}.bin",
-                    hex::encode(&dob_metadata.dob.decoder.hash)
-                ));
-                if !decoder_path.exists() {
-                    let onchain_decoder =
-                        self.settings
-                            .onchain_decoder_deployment
-                            .iter()
-                            .find_map(|deployment| {
-                                if deployment.code_hash == dob_metadata.dob.decoder.hash {
-                                    Some(self.fetch_decoder_binary_directly(
-                                        deployment.tx_hash.clone(),
-                                        deployment.out_index,
-                                    ))
-                                } else {
-                                    None
-                                }
-                            });
-                    let Some(decoder_binary) = onchain_decoder else {
-                        return Err(Error::NativeDecoderNotFound);
-                    };
-                    let decoder_file_content = decoder_binary.await?;
-                    if ckb_hash::blake2b_256(&decoder_file_content)
-                        != dob_metadata.dob.decoder.hash.0
-                    {
-                        return Err(Error::DecoderBinaryHashInvalid);
-                    }
-                    println!("write decoder binary to {:?}", decoder_path);
-                    // only do this when shuttle disabled
-                    #[cfg(not(feature = "shuttle"))]
-                    std::fs::write(decoder_path.clone(), decoder_file_content)
-                        .map_err(|_| Error::DecoderBinaryPathInvalid)?;
-                    // do this when shuttle enabled
-                    #[cfg(feature = "shuttle")]
-                    {
-                        self.persist
-                            .save::<Vec<u8>>(
-                                format!("{:?}", decoder_path).as_str(),
-                                decoder_file_content,
-                            )
+                #[cfg(not(feature = "shuttle"))]
+                {
+                    let mut decoder_path = self.settings.decoders_cache_directory.clone();
+                    decoder_path.push(format!(
+                        "code_hash_{}.bin",
+                        hex::encode(&dob_metadata.dob.decoder.hash)
+                    ));
+                    if !decoder_path.exists() {
+                        let onchain_decoder =
+                            self.settings.onchain_decoder_deployment.iter().find_map(
+                                |deployment| {
+                                    if deployment.code_hash == dob_metadata.dob.decoder.hash {
+                                        Some(self.fetch_decoder_binary_directly(
+                                            deployment.tx_hash.clone(),
+                                            deployment.out_index,
+                                        ))
+                                    } else {
+                                        None
+                                    }
+                                },
+                            );
+                        let Some(decoder_binary) = onchain_decoder else {
+                            return Err(Error::NativeDecoderNotFound);
+                        };
+                        let decoder_file_content = decoder_binary.await?;
+                        if ckb_hash::blake2b_256(&decoder_file_content)
+                            != dob_metadata.dob.decoder.hash.0
+                        {
+                            return Err(Error::DecoderBinaryHashInvalid);
+                        }
+                        println!("write decoder binary to {:?}", decoder_path);
+                        std::fs::write(decoder_path.clone(), decoder_file_content)
                             .map_err(|_| Error::DecoderBinaryPathInvalid)?;
                     }
+                    decoder_path
                 }
-                decoder_path
+                // do this when shuttle enabled
+                #[cfg(feature = "shuttle")]
+                {
+                    let decoder_path = format!(
+                        "code_hash_{}.bin",
+                        hex::encode(&dob_metadata.dob.decoder.hash)
+                    );
+                    if self.persist.load::<String>(decoder_path.as_str()).is_err() {
+                        let onchain_decoder =
+                            self.settings.onchain_decoder_deployment.iter().find_map(
+                                |deployment| {
+                                    if deployment.code_hash == dob_metadata.dob.decoder.hash {
+                                        Some(self.fetch_decoder_binary_directly(
+                                            deployment.tx_hash.clone(),
+                                            deployment.out_index,
+                                        ))
+                                    } else {
+                                        None
+                                    }
+                                },
+                            );
+                        let Some(decoder_binary) = onchain_decoder else {
+                            return Err(Error::NativeDecoderNotFound);
+                        };
+                        let decoder_file_content = decoder_binary.await?;
+                        if ckb_hash::blake2b_256(&decoder_file_content)
+                            != dob_metadata.dob.decoder.hash.0
+                        {
+                            return Err(Error::DecoderBinaryHashInvalid);
+                        }
+                        println!("write decoder binary to {:?}", decoder_path);
+                        self.persist
+                            .save::<Vec<u8>>(decoder_path.as_str(), decoder_file_content)
+                            .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                        println!("save to persist! cache_path: {:?}", decoder_path);
+                    }
+                    decoder_path
+                }
             }
             DecoderLocationType::TypeId => {
-                let mut decoder_path = self.settings.decoders_cache_directory.clone();
-                decoder_path.push(format!(
-                    "type_id_{}.bin",
-                    hex::encode(&dob_metadata.dob.decoder.hash)
-                ));
-                if !decoder_path.exists() {
-                    let decoder_binary = self
-                        .fetch_decoder_binary(dob_metadata.dob.decoder.hash.into())
-                        .await?;
-                    // only do this when shuttle disabled
-                    #[cfg(not(feature = "shuttle"))]
-                    std::fs::write(decoder_path.clone(), decoder_binary)
-                        .map_err(|_| Error::DecoderBinaryPathInvalid)?;
-                    // do this when shuttle enabled
-                    #[cfg(feature = "shuttle")]
-                    {
+                #[cfg(not(feature = "shuttle"))]
+                {
+                    let mut decoder_path = self.settings.decoders_cache_directory.clone();
+                    decoder_path.push(format!(
+                        "type_id_{}.bin",
+                        hex::encode(&dob_metadata.dob.decoder.hash)
+                    ));
+                    if !decoder_path.exists() {
+                        let decoder_binary = self
+                            .fetch_decoder_binary(dob_metadata.dob.decoder.hash.into())
+                            .await?;
+                        std::fs::write(decoder_path.clone(), decoder_binary)
+                            .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                    }
+                    decoder_path
+                }
+                #[cfg(feature = "shuttle")]
+                {
+                    let decoder_path = format!(
+                        "type_id_{}.bin",
+                        hex::encode(&dob_metadata.dob.decoder.hash)
+                    );
+                    if self.persist.load::<String>(decoder_path.as_str()).is_err() {
+                        let decoder_binary = self
+                            .fetch_decoder_binary(dob_metadata.dob.decoder.hash.into())
+                            .await?;
                         self.persist
                             .save::<Vec<u8>>(format!("{:?}", decoder_path).as_str(), decoder_binary)
                             .map_err(|_| Error::DecoderBinaryPathInvalid)?;
                     }
+                    decoder_path
                 }
-                decoder_path
             }
         };
         let pattern = match &dob_metadata.dob.pattern {
@@ -179,9 +213,21 @@ impl DOBDecoder {
             pattern => pattern.to_string(),
         };
         let raw_render_result = {
+            let binary_path = {
+                #[cfg(not(feature = "shuttle"))]
+                {
+                    decoder_path.to_string_lossy()
+                }
+                #[cfg(feature = "shuttle")]
+                {
+                    decoder_path
+                }
+            };
             let (exit_code, outputs) = crate::vm::execute_riscv_binary(
-                &decoder_path.to_string_lossy(),
+                &binary_path,
                 vec![dna.to_owned().into(), pattern.into()],
+                #[cfg(feature = "shuttle")]
+                &self.persist,
             )
             .map_err(|_| Error::DecoderExecutionError)?;
             #[cfg(feature = "render_debug")]

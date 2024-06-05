@@ -115,7 +115,10 @@ pub struct DOBDecoderFormat {
 }
 
 // asscoiate `code_hash` of decoder binary with its onchain deployment information
-#[cfg_attr(feature = "standalone_server", derive(Serialize, Deserialize, Debug, Clone))]
+#[cfg_attr(
+    feature = "standalone_server",
+    derive(Serialize, Deserialize, Debug, Clone)
+)]
 #[cfg_attr(test, derive(Default))]
 pub struct OnchainDecoderDeployment {
     pub code_hash: H256,
@@ -123,7 +126,10 @@ pub struct OnchainDecoderDeployment {
     pub out_index: u32,
 }
 
-#[cfg_attr(feature = "standalone_server", derive(Serialize, Deserialize, Debug, Clone))]
+#[cfg_attr(
+    feature = "standalone_server",
+    derive(Serialize, Deserialize, Debug, Clone)
+)]
 #[cfg_attr(test, derive(Default))]
 pub enum HashType {
     #[serde(rename(serialize = "data", deserialize = "data"))]
@@ -148,7 +154,10 @@ impl Into<ScriptHashType> for &HashType {
     }
 }
 
-#[cfg_attr(feature = "standalone_server", derive(Serialize, Deserialize, Debug, Clone))]
+#[cfg_attr(
+    feature = "standalone_server",
+    derive(Serialize, Deserialize, Debug, Clone)
+)]
 #[cfg_attr(test, derive(Default))]
 pub struct ScriptId {
     pub code_hash: H256,

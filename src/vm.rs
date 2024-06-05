@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use ckb_vm::cost_model::estimate_cycles;
 use ckb_vm::registers::{A0, A7};
 use ckb_vm::{Bytes, Memory, Register, SupportMachine, Syscalls};
+#[cfg(feature = "shuttle")]
+use shuttle_persist::PersistInstance;
 
 struct DebugSyscall {
     output: Arc<Mutex<Vec<String>>>,
@@ -75,7 +77,14 @@ fn main_asm(
 pub fn execute_riscv_binary(
     binary_path: &str,
     args: Vec<Bytes>,
+    #[cfg(feature = "shuttle")] persist: &PersistInstance,
 ) -> Result<(i8, Vec<String>), Box<dyn std::error::Error>> {
+    // if not shuttle
+    #[cfg(not(feature = "shuttle"))]
     let code = std::fs::read(binary_path)?.into();
+    // if shuttle
+    #[cfg(feature = "shuttle")]
+    let code = persist.load::<Vec<u8>>(binary_path)?.into();
+
     Ok(main_asm(code, args)?)
 }
