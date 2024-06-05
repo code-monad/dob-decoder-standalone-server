@@ -1,7 +1,7 @@
+pub mod decoder;
+pub mod server;
 #[cfg(test)]
 mod tests;
-mod vm;
-pub mod decoder;
 pub mod types;
-mod server;
+mod vm;
 pub use server::ServerDecodeResult;

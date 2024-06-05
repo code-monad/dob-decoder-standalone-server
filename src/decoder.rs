@@ -1,4 +1,9 @@
-use ckb_client::{constant::TYPE_ID_CODE_HASH, types::{IndexerScriptSearchMode, Order, SearchKey}};
+use crate::types::{ClusterDescriptionField, DecoderLocationType, Error, ScriptId, Settings};
+use ckb_client::rpc_client::RpcClient;
+use ckb_client::{
+    constant::TYPE_ID_CODE_HASH,
+    types::{IndexerScriptSearchMode, Order, SearchKey},
+};
 use ckb_types::{
     core::ScriptHashType,
     packed::{OutPoint, Script},
@@ -7,25 +12,46 @@ use ckb_types::{
 };
 use serde_json::Value;
 use spore_types::generated::spore::{ClusterData, SporeData};
-use ckb_client::rpc_client::RpcClient;
-use crate::types::{ClusterDescriptionField, DecoderLocationType, Error, ScriptId, Settings};
 
 type DecodeResult<T> = Result<T, Error>;
+
+// import persistinstance when shuttle feature enabled
+#[cfg(feature = "shuttle")]
+use shuttle_persist::PersistInstance;
 
 pub struct DOBDecoder {
     rpc: RpcClient,
     settings: Settings,
+    // only enabled when shuttle feature enabled
+    #[cfg(feature = "shuttle")]
+    pub persist: PersistInstance,
 }
 
 impl DOBDecoder {
+    #[cfg(not(feature = "shuttle"))]
     pub fn new(settings: Settings) -> Self {
-        // ensure dir creation, don't want to deal with it
-        let _ = std::fs::create_dir_all(&settings.decoders_cache_directory);
-        let _ = std::fs::create_dir_all(&settings.dobs_cache_directory);
+        // skip do this when shuttle feature enabled
+        #[cfg(not(feature = "shuttle"))]
+        {
+            // ensure dir creation, don't want to deal with it
+            let _ = std::fs::create_dir_all(&settings.decoders_cache_directory);
+            let _ = std::fs::create_dir_all(&settings.dobs_cache_directory);
+        }
 
         Self {
             rpc: RpcClient::new(&settings.ckb_rpc),
             settings,
+            #[cfg(feature = "shuttle")]
+            persist,
+        }
+    }
+
+    #[cfg(feature = "shuttle")]
+    pub fn new(settings: Settings, persist: PersistInstance) -> Self {
+        Self {
+            rpc: RpcClient::new(&settings.ckb_rpc),
+            settings,
+            persist,
         }
     }
 
@@ -84,8 +110,20 @@ impl DOBDecoder {
                         return Err(Error::DecoderBinaryHashInvalid);
                     }
                     println!("write decoder binary to {:?}", decoder_path);
+                    // only do this when shuttle disabled
+                    #[cfg(not(feature = "shuttle"))]
                     std::fs::write(decoder_path.clone(), decoder_file_content)
                         .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                    // do this when shuttle enabled
+                    #[cfg(feature = "shuttle")]
+                    {
+                        self.persist
+                            .save::<Vec<u8>>(
+                                format!("{:?}", decoder_path).as_str(),
+                                decoder_file_content,
+                            )
+                            .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                    }
                 }
                 decoder_path
             }
@@ -99,8 +137,17 @@ impl DOBDecoder {
                     let decoder_binary = self
                         .fetch_decoder_binary(dob_metadata.dob.decoder.hash.into())
                         .await?;
+                    // only do this when shuttle disabled
+                    #[cfg(not(feature = "shuttle"))]
                     std::fs::write(decoder_path.clone(), decoder_binary)
                         .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                    // do this when shuttle enabled
+                    #[cfg(feature = "shuttle")]
+                    {
+                        self.persist
+                            .save::<Vec<u8>>(format!("{:?}", decoder_path).as_str(), decoder_binary)
+                            .map_err(|_| Error::DecoderBinaryPathInvalid)?;
+                    }
                 }
                 decoder_path
             }
@@ -176,9 +223,17 @@ impl DOBDecoder {
         {
             spore_cell = self
                 .rpc
-                .get_cells(spore_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
+                .get_cells(
+                    spore_search_option.into(),
+                    Order::Asc,
+                    ckb_jsonrpc_types::Uint32::from(1),
+                    None,
+                )
                 .await
-                .map_err(|_| Error::FetchLiveCellsError)?
+                .map_err(|err| {
+                    println!("{:?}", err);
+                    Error::FetchLiveCellsError
+                })?
                 .objects
                 .first()
                 .cloned();
@@ -223,7 +278,12 @@ impl DOBDecoder {
         {
             cluster_cell = self
                 .rpc
-                .get_cells(cluster_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
+                .get_cells(
+                    cluster_search_option.into(),
+                    Order::Asc,
+                    ckb_jsonrpc_types::Uint32::from(1),
+                    None,
+                )
                 .await
                 .map_err(|_| Error::FetchLiveCellsError)?
                 .objects
@@ -250,7 +310,12 @@ impl DOBDecoder {
         let decoder_search_option = build_type_id_search_option(decoder_id);
         let decoder_cell = self
             .rpc
-            .get_cells(decoder_search_option.into(), Order::Asc, ckb_jsonrpc_types::Uint32::from(1), None)
+            .get_cells(
+                decoder_search_option.into(),
+                Order::Asc,
+                ckb_jsonrpc_types::Uint32::from(1),
+                None,
+            )
             .await
             .map_err(|_| Error::FetchLiveCellsError)?
             .objects
@@ -298,7 +363,6 @@ fn build_type_id_search_option(type_id_args: [u8; 32]) -> SearchKey {
         filter: None,
         with_data: None,
         group_by_transaction: None,
-        
     }
 }
 
@@ -326,7 +390,6 @@ fn build_batch_search_options(
                     filter: None,
                     with_data: None,
                     group_by_transaction: None,
-                    
                 }
             },
         )

@@ -26,8 +26,10 @@ jsonrpsee = { version = "0.22.3", features = ["server", "macros"], optional = tr
 toml = { version = "0.8.2", optional = true }
 tokio = { version = "1.37", features = ["rt", "signal"], optional = true }
 tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"], optional = true }
+shuttle-persist = { version = "0.45", optional = true }
 
 [features]
 default = ["standalone_server", "render_debug"]
 standalone_server = ["jsonrpsee", "toml", "tokio", "tracing-subscriber"]
 render_debug = []
+shuttle = ["shuttle-persist"]
