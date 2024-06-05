@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use jsonrpsee::core::async_trait;
 use jsonrpsee::{proc_macros::rpc, tracing, types::ErrorCode};
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Serialize, Deserialize};
+use serde_json::{json, Value};
 
 use crate::decoder::DOBDecoder;
 use crate::types::Error;
@@ -12,7 +12,7 @@ use crate::types::Error;
 // decoding result contains rendered result from native decoder and DNA string for optional use
 #[derive(Serialize, Clone, Debug)]
 pub struct ServerDecodeResult {
-    render_output: String,
+    render_output: Value,
     dob_content: Value,
 }
 
@@ -22,10 +22,10 @@ trait DecoderRpc {
     async fn protocol_versions(&self) -> Vec<String>;
 
     #[method(name = "dob_decode")]
-    async fn decode(&self, hexed_spore_id: String) -> Result<String, ErrorCode>;
+    async fn decode(&self, hexed_spore_id: String) -> Result<Value, ErrorCode>;
 
     #[method(name = "dob_batch_decode")]
-    async fn batch_decode(&self, hexed_spore_ids: Vec<String>) -> Result<Vec<String>, ErrorCode>;
+    async fn batch_decode(&self, hexed_spore_ids: Vec<String>) -> Result<Vec<Value>, ErrorCode>;
 }
 
 pub struct DecoderStandaloneServer {
@@ -45,34 +45,16 @@ impl DecoderRpcServer for DecoderStandaloneServer {
     }
 
     // decode DNA in particular spore DOB cell
-    async fn decode(&self, hexed_spore_id: String) -> Result<String, ErrorCode> {
-        tracing::info!("decoding spore_id {hexed_spore_id}");
-        let spore_id: [u8; 32] = hex::decode(hexed_spore_id.clone())
-            .map_err(|_| Error::HexedSporeIdParseError)?
-            .try_into()
-            .map_err(|_| Error::SporeIdLengthInvalid)?;
-        let mut cache_path = self.decoder.setting().dobs_cache_directory.clone();
-        cache_path.push(format!("{}.dob", hex::encode(spore_id)));
-        let (render_output, dob_content) = if cache_path.exists() {
-            read_dob_from_cache(cache_path)?
-        } else {
-            let ((content, dna), metadata) =
-                self.decoder.fetch_decode_ingredients(spore_id).await?;
-            let render_output = self.decoder.decode_dna(&dna, metadata).await?;
-            write_dob_to_cache(&render_output, &content, cache_path)?;
-            (render_output, content)
-        };
-        let result = serde_json::to_string(&ServerDecodeResult {
-            render_output,
-            dob_content,
-        })
-        .unwrap();
-        tracing::info!("spore_id {hexed_spore_id}, result: {result}");
-        Ok(result)
+    async fn decode(&self, hexed_spore_id: String) -> Result<Value, ErrorCode>  {
+        let decoded_data = decode_dob(&self.decoder, hexed_spore_id).await;
+        match decoded_data {
+            Ok(result) => Ok(json!(result)),
+            Err(error) => Err(error.into()),
+        }
     }
 
     // decode DNA from a set
-    async fn batch_decode(&self, hexed_spore_ids: Vec<String>) -> Result<Vec<String>, ErrorCode> {
+    async fn batch_decode(&self, hexed_spore_ids: Vec<String>) -> Result<Vec<Value>, ErrorCode> {
         let mut await_results = Vec::new();
         for hexed_spore_id in hexed_spore_ids {
             await_results.push(self.decode(hexed_spore_id));
@@ -81,12 +63,38 @@ impl DecoderRpcServer for DecoderStandaloneServer {
             .await
             .into_iter()
             .map(|result| match result {
-                Ok(result) => result,
-                Err(error) => format!("server error: {error}"),
+                Ok(result) => Ok(result),
+                Err(error) => Err(error),
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(results)
     }
+}
+
+
+pub async fn decode_dob(decoder: &DOBDecoder,hexed_spore_id: String) -> Result<ServerDecodeResult, ErrorCode> {
+    tracing::info!("decoding spore_id {hexed_spore_id}");
+        let spore_id: [u8; 32] = hex::decode(hexed_spore_id.clone())
+            .map_err(|_| Error::HexedSporeIdParseError)?
+            .try_into()
+            .map_err(|_| Error::SporeIdLengthInvalid)?;
+        let mut cache_path = decoder.setting().dobs_cache_directory.clone();
+        cache_path.push(format!("{}.dob", hex::encode(spore_id)));
+        let (render_output, dob_content) = if cache_path.exists() {
+            read_dob_from_cache(cache_path)?
+        } else {
+            let ((content, dna), metadata) =
+                decoder.fetch_decode_ingredients(spore_id).await?;
+            let render_output = decoder.decode_dna(&dna, metadata).await?;
+            write_dob_to_cache(&render_output, &content, cache_path)?;
+            (render_output, content)
+        };
+        let result = ServerDecodeResult {
+            render_output: serde_json::from_str(render_output.as_str()).unwrap(),
+            dob_content,
+        };
+        tracing::info!("spore_id {hexed_spore_id}, result: {}", result.render_output);
+        Ok(result)
 }
 
 pub fn read_dob_from_cache(cache_path: PathBuf) -> Result<(String, Value), Error> {
