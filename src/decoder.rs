@@ -31,13 +31,9 @@ impl DOBDecoder {
     #[allow(dead_code)]
     #[cfg(not(feature = "shuttle"))]
     pub fn new(settings: Settings) -> Self {
-        // skip do this when shuttle feature enabled
-        #[cfg(not(feature = "shuttle"))]
-        {
-            // ensure dir creation, don't want to deal with it
-            let _ = std::fs::create_dir_all(&settings.decoders_cache_directory);
-            let _ = std::fs::create_dir_all(&settings.dobs_cache_directory);
-        }
+        // ensure dir creation, don't want to deal with it
+        let _ = std::fs::create_dir_all(&settings.decoders_cache_directory);
+        let _ = std::fs::create_dir_all(&settings.dobs_cache_directory);
 
         Self {
             rpc: RpcClient::new(&settings.ckb_rpc),
